@@ -269,9 +269,9 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
                 }
             } catch (RuntimeException re) {
                 if (!conf.getEnforceMinNumRacksPerWriteQuorum()) {
-                    LOG.error("Failed to initialize DNS Resolver {}, used default subnet resolver : {}",
+                    LOG.error("Failed to initialize DNS Resolver {}, used default subnet resolver : {} {}",
                             dnsResolverName, re, re.getMessage());
-                    dnsResolver = new DefaultResolver(() -> this.getDefaultRack());
+                    dnsResolver = new DefaultResolver(this::getDefaultRack);
                 } else {
                     /*
                      * if minNumRacksPerWriteQuorum is enforced, then it
@@ -281,6 +281,9 @@ public class RackawareEnsemblePlacementPolicyImpl extends TopologyAwareEnsembleP
                     throw re;
                 }
             }
+        }
+        if (dnsResolver != null) {
+            dnsResolver.setBookieAddressResolver(bookieAddressResolver);
         }
         slowBookies = CacheBuilder.newBuilder()
             .expireAfterWrite(conf.getBookieFailureHistoryExpirationMSec(), TimeUnit.MILLISECONDS)

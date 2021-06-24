@@ -129,6 +129,7 @@ public class DbLedgerStorage implements LedgerStorage {
             ledgerStorageList.add(newSingleDirectoryDbLedgerStorage(conf, ledgerManager, ldm, indexDirsManager,
                     stateManager, checkpointSource, checkpointer, statsLogger, gcExecutor, perDirectoryWriteCacheSize,
                     perDirectoryReadCacheSize));
+            ldm.getListeners().forEach(ledgerDirsManager::addLedgerDirsListener);
         }
 
         this.stats = new DbLedgerStorageStats(
@@ -242,12 +243,12 @@ public class DbLedgerStorage implements LedgerStorage {
     }
 
     @Override
-    public void setExplicitlac(long ledgerId, ByteBuf lac) throws IOException {
-        getLedgerSorage(ledgerId).setExplicitlac(ledgerId, lac);
+    public void setExplicitLac(long ledgerId, ByteBuf lac) throws IOException {
+        getLedgerSorage(ledgerId).setExplicitLac(ledgerId, lac);
     }
 
     @Override
-    public ByteBuf getExplicitLac(long ledgerId) {
+    public ByteBuf getExplicitLac(long ledgerId) throws IOException {
         return getLedgerSorage(ledgerId).getExplicitLac(ledgerId);
     }
 
@@ -313,7 +314,8 @@ public class DbLedgerStorage implements LedgerStorage {
         String ledgerBasePath = ledgerDirs.get(dirIndex).toString();
 
         EntryLocationIndex entryLocationIndex = new EntryLocationIndex(serverConf,
-                (path, dbConfigType, conf1) -> new KeyValueStorageRocksDB(path, DbConfigType.Small, conf1, true),
+                (basePath, subPath, dbConfigType, conf1) ->
+                        new KeyValueStorageRocksDB(basePath, subPath, DbConfigType.Small, conf1, true),
                 ledgerBasePath, NullStatsLogger.INSTANCE);
         try {
             long lastEntryId = entryLocationIndex.getLastEntryInLedger(ledgerId);

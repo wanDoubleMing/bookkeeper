@@ -24,7 +24,6 @@ import static org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicyImpl.
 import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -33,8 +32,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.client.LedgerMetadataBuilder;
 import org.apache.bookkeeper.client.RackawareEnsemblePlacementPolicy;
 import org.apache.bookkeeper.client.ZoneawareEnsemblePlacementPolicy;
@@ -84,8 +82,8 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
     public void setUp() throws Exception {
         super.setUp();
         StaticDNSResolver.reset();
-        driver = MetadataDrivers.getBookieDriver(URI.create(bsConfs.get(0).getMetadataServiceUri()));
-        driver.initialize(bsConfs.get(0), () -> {
+        driver = MetadataDrivers.getBookieDriver(URI.create(confByIndex(0).getMetadataServiceUri()));
+        driver.initialize(confByIndex(0), () -> {
         }, NullStatsLogger.INSTANCE);
     }
 
@@ -123,6 +121,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
 
         // closed ledger
         LedgerMetadata initMeta = LedgerMetadataBuilder.create()
+                .withId(1L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -139,6 +138,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         ensembleSize = 4;
         // closed ledger with multiple segments
         initMeta = LedgerMetadataBuilder.create()
+                .withId(2L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -156,6 +156,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         Collections.shuffle(bookieAddresses);
         // non-closed ledger
         initMeta = LedgerMetadataBuilder.create()
+                .withId(3L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -168,6 +169,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         Collections.shuffle(bookieAddresses);
         // non-closed ledger with multiple segments
         initMeta = LedgerMetadataBuilder.create()
+                .withId(4L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -179,7 +181,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
                 .build();
         lm.createLedgerMetadata(4L, initMeta).get();
 
-        ServerConfiguration servConf = new ServerConfiguration(bsConfs.get(0));
+        ServerConfiguration servConf = new ServerConfiguration(confByIndex(0));
         servConf.setMinNumRacksPerWriteQuorum(minNumRacksPerWriteQuorumConfValue);
         setServerConfigPropertiesForRackPlacement(servConf);
         MutableObject<Auditor> auditorRef = new MutableObject<Auditor>();
@@ -241,6 +243,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * 3 racks, and the ensembleSize is 5.
          */
         LedgerMetadata initMeta = LedgerMetadataBuilder.create()
+                .withId(1L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -259,6 +262,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * adhering to placement policy
          */
         initMeta = LedgerMetadataBuilder.create()
+                .withId(2L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -268,7 +272,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
                 .build();
         lm.createLedgerMetadata(2L, initMeta).get();
 
-        ServerConfiguration servConf = new ServerConfiguration(bsConfs.get(0));
+        ServerConfiguration servConf = new ServerConfiguration(confByIndex(0));
         servConf.setMinNumRacksPerWriteQuorum(minNumRacksPerWriteQuorumConfValue);
         setServerConfigPropertiesForRackPlacement(servConf);
         MutableObject<Auditor> auditorRef = new MutableObject<Auditor>();
@@ -326,6 +330,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
 
         long ledgerId1 = 1L;
         LedgerMetadata initMeta = LedgerMetadataBuilder.create()
+                .withId(ledgerId1)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -349,6 +354,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         ensembleSize = 3;
         long ledgerId2 = 21234561L;
         initMeta = LedgerMetadataBuilder.create()
+                .withId(ledgerId2)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -370,6 +376,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          */
         long ledgerId3 = 31234561L;
         initMeta = LedgerMetadataBuilder.create()
+                .withId(ledgerId3)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -401,7 +408,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
             Thread.sleep(5000);
         }
 
-        ServerConfiguration servConf = new ServerConfiguration(bsConfs.get(0));
+        ServerConfiguration servConf = new ServerConfiguration(confByIndex(0));
         servConf.setUnderreplicatedLedgerRecoveryGracePeriod(underreplicatedLedgerRecoveryGracePeriod);
         setServerConfigPropertiesForRackPlacement(servConf);
         MutableObject<Auditor> auditorRef = new MutableObject<Auditor>();
@@ -455,6 +462,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * counted as ledgers not adhering to placement policy.
          */
         LedgerMetadata initMeta = LedgerMetadataBuilder.create()
+                .withId(1L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -481,6 +489,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * policy, it should be counted as single ledger.
          */
         initMeta = LedgerMetadataBuilder.create()
+                .withId(2L)
                 .withEnsembleSize(ensembleSize)
                 .withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize)
@@ -500,7 +509,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         lm.createLedgerMetadata(2L, initMeta).get();
         numOfLedgersNotAdheringToPlacementPolicy++;
 
-        ServerConfiguration servConf = new ServerConfiguration(bsConfs.get(0));
+        ServerConfiguration servConf = new ServerConfiguration(confByIndex(0));
         servConf.setMinNumRacksPerWriteQuorum(minNumRacksPerWriteQuorumConfValue);
         setServerConfigPropertiesForRackPlacement(servConf);
         MutableObject<Auditor> auditorRef = new MutableObject<Auditor>();
@@ -546,7 +555,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         LedgerManagerFactory mFactory = driver.getLedgerManagerFactory();
         LedgerManager lm = mFactory.newLedgerManager();
 
-        ServerConfiguration servConf = new ServerConfiguration(bsConfs.get(0));
+        ServerConfiguration servConf = new ServerConfiguration(confByIndex(0));
         servConf.setDesiredNumZonesPerWriteQuorum(3);
         servConf.setMinNumZonesPerWriteQuorum(2);
         setServerConfigPropertiesForZonePlacement(servConf);
@@ -556,6 +565,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * ensemble is spread across 3 zones and 2 UDs
          */
         LedgerMetadata initMeta = LedgerMetadataBuilder.create()
+                .withId(1L)
                 .withEnsembleSize(6)
                 .withWriteQuorumSize(6)
                 .withAckQuorumSize(2)
@@ -574,6 +584,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * this shouldn't be reported
          */
         initMeta = LedgerMetadataBuilder.create()
+                .withId(2L)
                 .withEnsembleSize(6)
                 .withWriteQuorumSize(5)
                 .withAckQuorumSize(2)
@@ -588,6 +599,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
          * this ledger is not adhering to placement policy.
          */
         initMeta = LedgerMetadataBuilder.create()
+                .withId(3L)
                 .withEnsembleSize(6)
                 .withWriteQuorumSize(5)
                 .withAckQuorumSize(2)
@@ -612,6 +624,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         newEnsemble.add(bookieAddresses.get(3));
         newEnsemble.add(bookieAddresses.get(4));
         initMeta = LedgerMetadataBuilder.create()
+                .withId(4L)
                 .withEnsembleSize(4)
                 .withWriteQuorumSize(4)
                 .withAckQuorumSize(2)
@@ -672,7 +685,7 @@ public class AuditorPlacementPolicyCheckTest extends BookKeeperClusterTestCase {
         TestOpStatsLogger placementPolicyCheckStatsLogger = (TestOpStatsLogger) statsLogger
                 .getOpStatsLogger(ReplicationStats.PLACEMENT_POLICY_CHECK_TIME);
 
-        final TestAuditor auditor = new TestAuditor(Bookie.getBookieId(servConf).toString(), servConf,
+        final TestAuditor auditor = new TestAuditor(BookieImpl.getBookieId(servConf).toString(), servConf,
                 statsLogger);
         auditorRef.setValue(auditor);
         CountDownLatch latch = auditor.getLatch();

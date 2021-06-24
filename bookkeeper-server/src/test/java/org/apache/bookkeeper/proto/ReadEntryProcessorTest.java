@@ -27,20 +27,19 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-
-import com.google.common.util.concurrent.SettableFuture;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelPromise;
 import io.netty.channel.DefaultChannelPromise;
-
+import io.netty.channel.EventLoop;
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
-
 import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.common.concurrent.FutureUtils;
 import org.apache.bookkeeper.proto.BookieProtocol.ReadRequest;
 import org.apache.bookkeeper.proto.BookieProtocol.Response;
 import org.apache.bookkeeper.stats.NullStatsLogger;
@@ -66,6 +65,10 @@ public class ReadEntryProcessorTest {
         when(requestProcessor.getRequestStats()).thenReturn(new RequestStats(NullStatsLogger.INSTANCE));
         when(channel.voidPromise()).thenReturn(mock(ChannelPromise.class));
         when(channel.writeAndFlush(any())).thenReturn(mock(ChannelPromise.class));
+
+        EventLoop eventLoop = mock(EventLoop.class);
+        when(eventLoop.inEventLoop()).thenReturn(true);
+        when(channel.eventLoop()).thenReturn(eventLoop);
     }
 
     @Test
@@ -79,7 +82,7 @@ public class ReadEntryProcessorTest {
     }
 
     private void testAsynchronousRequest(boolean result, int errorCode) throws Exception {
-        SettableFuture<Boolean> fenceResult = SettableFuture.create();
+        CompletableFuture<Boolean> fenceResult = FutureUtils.createFuture();
         when(bookie.fenceLedger(anyLong(), any())).thenReturn(fenceResult);
 
         ChannelPromise promise = new DefaultChannelPromise(channel);
@@ -87,20 +90,21 @@ public class ReadEntryProcessorTest {
         CountDownLatch latch = new CountDownLatch(1);
         doAnswer(invocationOnMock -> {
             writtenObject.set(invocationOnMock.getArgument(0));
+            promise.setSuccess();
             latch.countDown();
             return promise;
-        }).when(channel).writeAndFlush(any(Response.class), any());
+        }).when(channel).writeAndFlush(any(Response.class));
 
         ExecutorService service = Executors.newCachedThreadPool();
         long ledgerId = System.currentTimeMillis();
         ReadRequest request = new ReadRequest(BookieProtocol.CURRENT_PROTOCOL_VERSION, ledgerId,
                 1, BookieProtocol.FLAG_DO_FENCING, new byte[]{});
-        ReadEntryProcessor processor = ReadEntryProcessor.create(request, channel, requestProcessor, service);
+        ReadEntryProcessor processor = ReadEntryProcessor.create(request, channel, requestProcessor, service, true);
         processor.run();
 
-        fenceResult.set(result);
+        fenceResult.complete(result);
         latch.await();
-        verify(channel, times(1)).writeAndFlush(any(Response.class), any());
+        verify(channel, times(1)).writeAndFlush(any(Response.class));
 
         assertTrue(writtenObject.get() instanceof Response);
         Response response = (Response) writtenObject.get();
@@ -108,6 +112,7 @@ public class ReadEntryProcessorTest {
         assertEquals(ledgerId, response.getLedgerId());
         assertEquals(BookieProtocol.READENTRY, response.getOpCode());
         assertEquals(errorCode, response.getErrorCode());
+        service.shutdown();
     }
 
     @Test
@@ -121,26 +126,27 @@ public class ReadEntryProcessorTest {
     }
 
     private void testSynchronousRequest(boolean result, int errorCode) throws Exception {
-        SettableFuture<Boolean> fenceResult = SettableFuture.create();
+        CompletableFuture<Boolean> fenceResult = FutureUtils.createFuture();
         when(bookie.fenceLedger(anyLong(), any())).thenReturn(fenceResult);
         ChannelPromise promise = new DefaultChannelPromise(channel);
         AtomicReference<Object> writtenObject = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
         doAnswer(invocationOnMock -> {
             writtenObject.set(invocationOnMock.getArgument(0));
+            promise.setSuccess();
             latch.countDown();
             return promise;
-        }).when(channel).writeAndFlush(any(Response.class), any());
+        }).when(channel).writeAndFlush(any(Response.class));
 
         long ledgerId = System.currentTimeMillis();
         ReadRequest request = new ReadRequest(BookieProtocol.CURRENT_PROTOCOL_VERSION, ledgerId,
                 1, BookieProtocol.FLAG_DO_FENCING, new byte[]{});
-        ReadEntryProcessor processor = ReadEntryProcessor.create(request, channel, requestProcessor, null);
-        fenceResult.set(result);
+        ReadEntryProcessor processor = ReadEntryProcessor.create(request, channel, requestProcessor, null, true);
+        fenceResult.complete(result);
         processor.run();
 
         latch.await();
-        verify(channel, times(1)).writeAndFlush(any(Response.class), any());
+        verify(channel, times(1)).writeAndFlush(any(Response.class));
 
         assertTrue(writtenObject.get() instanceof Response);
         Response response = (Response) writtenObject.get();
@@ -157,18 +163,19 @@ public class ReadEntryProcessorTest {
         CountDownLatch latch = new CountDownLatch(1);
         doAnswer(invocationOnMock -> {
             writtenObject.set(invocationOnMock.getArgument(0));
+            promise.setSuccess();
             latch.countDown();
             return promise;
-        }).when(channel).writeAndFlush(any(Response.class), any());
+        }).when(channel).writeAndFlush(any(Response.class));
 
         long ledgerId = System.currentTimeMillis();
         ReadRequest request = new ReadRequest(BookieProtocol.CURRENT_PROTOCOL_VERSION, ledgerId,
                 1, (short) 0, new byte[]{});
-        ReadEntryProcessor processor = ReadEntryProcessor.create(request, channel, requestProcessor, null);
+        ReadEntryProcessor processor = ReadEntryProcessor.create(request, channel, requestProcessor, null, true);
         processor.run();
 
         latch.await();
-        verify(channel, times(1)).writeAndFlush(any(Response.class), any());
+        verify(channel, times(1)).writeAndFlush(any(Response.class));
 
         assertTrue(writtenObject.get() instanceof Response);
         Response response = (Response) writtenObject.get();

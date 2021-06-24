@@ -57,7 +57,6 @@ import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.GetBookieInfoCall
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.ReadEntryCallback;
 import org.apache.bookkeeper.proto.BookkeeperInternalCallbacks.WriteCallback;
 import org.apache.bookkeeper.proto.BookkeeperProtocol;
-import org.apache.bookkeeper.proto.PerChannelBookieClient;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.test.TestStatsProvider.TestOpStatsLogger;
 import org.apache.bookkeeper.test.TestStatsProvider.TestStatsLogger;
@@ -90,6 +89,7 @@ public class BookieClientTest {
             .setJournalDirName(tmpDir.getPath())
             .setLedgerDirNames(new String[] { tmpDir.getPath() })
             .setMetadataServiceUri(null);
+
         bs = new BookieServer(conf);
         bs.start();
         eventLoopGroup = new NioEventLoopGroup();
@@ -338,7 +338,7 @@ public class BookieClientTest {
 
         TestOpStatsLogger perChannelBookieClientScopeOfThisAddr = (TestOpStatsLogger) statsLogger
                 .scope(BookKeeperClientStats.CHANNEL_SCOPE)
-                .scope(PerChannelBookieClient.buildStatsLoggerScopeName(addr.toBookieId()))
+                .scopeLabel(BookKeeperClientStats.BOOKIE_LABEL, addr.toBookieId().toString())
                 .getOpStatsLogger(BookKeeperClientStats.GET_BOOKIE_INFO_OP);
         int expectedBookieInfoSuccessCount = (limitStatsLogging) ? 0 : 1;
         assertEquals("BookieInfoSuccessCount", expectedBookieInfoSuccessCount,

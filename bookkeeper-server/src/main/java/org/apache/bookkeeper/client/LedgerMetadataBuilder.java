@@ -20,6 +20,7 @@ package org.apache.bookkeeper.client;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static org.apache.bookkeeper.meta.LedgerMetadataSerDe.CURRENT_METADATA_FORMAT_VERSION;
+import static org.apache.bookkeeper.meta.LedgerMetadataSerDe.METADATA_FORMAT_VERSION_1;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableMap;
@@ -45,6 +46,7 @@ import org.apache.bookkeeper.net.BookieId;
 @Unstable
 @VisibleForTesting
 public class LedgerMetadataBuilder {
+    private long ledgerId = -1L;
     private int metadataFormatVersion = CURRENT_METADATA_FORMAT_VERSION;
     private int ensembleSize = 3;
     private int writeQuorumSize = 3;
@@ -72,6 +74,7 @@ public class LedgerMetadataBuilder {
 
     public static LedgerMetadataBuilder from(LedgerMetadata other) {
         LedgerMetadataBuilder builder = new LedgerMetadataBuilder();
+        builder.ledgerId = other.getLedgerId();
         builder.metadataFormatVersion = other.getMetadataFormatVersion();
         builder.ensembleSize = other.getEnsembleSize();
         builder.writeQuorumSize = other.getWriteQuorumSize();
@@ -100,7 +103,15 @@ public class LedgerMetadataBuilder {
         return builder;
     }
 
+    public LedgerMetadataBuilder withId(long ledgerId) {
+        this.ledgerId = ledgerId;
+        return this;
+    }
+
     public LedgerMetadataBuilder withMetadataFormatVersion(int version) {
+        if (version < METADATA_FORMAT_VERSION_1 || version > CURRENT_METADATA_FORMAT_VERSION) {
+            return this;
+        }
         this.metadataFormatVersion = version;
         return this;
     }
@@ -190,10 +201,11 @@ public class LedgerMetadataBuilder {
     }
 
     public LedgerMetadata build() {
+        checkArgument(ledgerId >= 0, "Ledger id must be set");
         checkArgument(ensembleSize >= writeQuorumSize, "Write quorum must be less or equal to ensemble size");
         checkArgument(writeQuorumSize >= ackQuorumSize, "Write quorum must be greater or equal to ack quorum");
 
-        return new LedgerMetadataImpl(metadataFormatVersion,
+        return new LedgerMetadataImpl(ledgerId, metadataFormatVersion,
                                       ensembleSize, writeQuorumSize, ackQuorumSize,
                                       state, lastEntryId, length, ensembles,
                                       digestType, password, ctime, storeCtime,

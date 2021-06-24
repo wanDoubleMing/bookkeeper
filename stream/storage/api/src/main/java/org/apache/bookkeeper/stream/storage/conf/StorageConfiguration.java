@@ -31,6 +31,12 @@ public class StorageConfiguration extends ComponentConfiguration {
 
     private static final String CONTROLLER_SCHEDULE_INTERVAL_MS = "cluster.controller.schedule.interval.ms";
 
+    private static final String CHECKPOINT_CHECKSUM_ENABLE = "checkpoint.checksum.enable";
+
+    private static final String CHECKPOINT_CHECKSUM_COMPATIBLE = "checkpoint.checksum.compatible";
+
+    private static final String LOCAL_STORAGE_CLEANUP_ENABLE = "local.storage.cleanup.enable";
+
     public StorageConfiguration(CompositeConfiguration conf) {
         super(conf, COMPONENT_PREFIX);
     }
@@ -89,4 +95,15 @@ public class StorageConfiguration extends ComponentConfiguration {
         return this;
     }
 
+    public boolean getCheckpointChecksumEnable() {
+        return getBoolean(CHECKPOINT_CHECKSUM_ENABLE, true);
+    }
+
+    public boolean getCheckpointChecksumCompatible() {
+        return getBoolean(CHECKPOINT_CHECKSUM_COMPATIBLE, true);
+    }
+
+    public boolean getLocalStorageCleanupEnable() {
+        return getBoolean(LOCAL_STORAGE_CLEANUP_ENABLE, true);
+    }
 }

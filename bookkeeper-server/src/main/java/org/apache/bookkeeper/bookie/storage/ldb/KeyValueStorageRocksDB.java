@@ -22,14 +22,14 @@ package org.apache.bookkeeper.bookie.storage.ldb;
 
 import static com.google.common.base.Preconditions.checkState;
 
-import com.google.common.primitives.UnsignedBytes;
-
 //CHECKSTYLE.OFF: IllegalImport
 import io.netty.util.internal.PlatformDependent;
 //CHECKSTYLE.ON: IllegalImport
 
 import java.io.IOException;
-import java.util.Comparator;
+import java.nio.file.FileSystems;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Map.Entry;
 import java.util.concurrent.TimeUnit;
 
@@ -47,6 +47,7 @@ import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
+import org.rocksdb.Slice;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
@@ -57,8 +58,8 @@ import org.slf4j.LoggerFactory;
  */
 public class KeyValueStorageRocksDB implements KeyValueStorage {
 
-    static KeyValueStorageFactory factory = (path, dbConfigType, conf) -> new KeyValueStorageRocksDB(path, dbConfigType,
-            conf);
+    static KeyValueStorageFactory factory = (defaultBasePath, subPath, dbConfigType, conf) ->
+            new KeyValueStorageRocksDB(defaultBasePath, subPath, dbConfigType, conf);
 
     private final RocksDB db;
 
@@ -70,6 +71,7 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
 
     private final WriteBatch emptyBatch;
 
+    private static final String ROCKSDB_LOG_PATH = "dbStorage_rocksDB_logPath";
     private static final String ROCKSDB_LOG_LEVEL = "dbStorage_rocksDB_logLevel";
     private static final String ROCKSDB_LZ4_COMPRESSION_ENABLED = "dbStorage_rocksDB_lz4CompressionEnabled";
     private static final String ROCKSDB_WRITE_BUFFER_SIZE_MB = "dbStorage_rocksDB_writeBufferSizeMB";
@@ -81,11 +83,13 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
     private static final String ROCKSDB_NUM_FILES_IN_LEVEL0 = "dbStorage_rocksDB_numFilesInLevel0";
     private static final String ROCKSDB_MAX_SIZE_IN_LEVEL1_MB = "dbStorage_rocksDB_maxSizeInLevel1MB";
 
-    public KeyValueStorageRocksDB(String path, DbConfigType dbConfigType, ServerConfiguration conf) throws IOException {
-        this(path, dbConfigType, conf, false);
+    public KeyValueStorageRocksDB(String basePath, String subPath, DbConfigType dbConfigType, ServerConfiguration conf)
+            throws IOException {
+        this(basePath, subPath, dbConfigType, conf, false);
     }
 
-    public KeyValueStorageRocksDB(String path, DbConfigType dbConfigType, ServerConfiguration conf, boolean readOnly)
+    public KeyValueStorageRocksDB(String basePath, String subPath, DbConfigType dbConfigType, ServerConfiguration conf,
+                                  boolean readOnly)
             throws IOException {
         try {
             RocksDB.loadLibrary();
@@ -103,8 +107,9 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             options.setCreateIfMissing(true);
 
             if (dbConfigType == DbConfigType.Huge) {
-                // Set default RocksDB block-cache size to 10% of direct mem, unless override
-                long defaultRocksDBBlockCacheSizeBytes = PlatformDependent.maxDirectMemory() / 10;
+                // Set default RocksDB block-cache size to 10% / numberOfLedgers of direct memory, unless override
+                int ledgerDirsSize = conf.getLedgerDirNames().length;
+                long defaultRocksDBBlockCacheSizeBytes = PlatformDependent.maxDirectMemory() / ledgerDirsSize / 10;
                 long blockCacheSize = DbLedgerStorage.getLongVariableOrDefault(conf, ROCKSDB_BLOCK_CACHE_SIZE,
                         defaultRocksDBBlockCacheSizeBytes);
 
@@ -150,6 +155,16 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
 
                 options.setTableFormatConfig(tableOptions);
             }
+
+            // Configure file path
+            String logPath = conf.getString(ROCKSDB_LOG_PATH, "");
+            if (!logPath.isEmpty()) {
+                Path logPathSetting = FileSystems.getDefault().getPath(logPath, subPath);
+                Files.createDirectories(logPathSetting);
+                log.info("RocksDB<{}> log path: {}", subPath, logPathSetting);
+                options.setDbLogDir(logPathSetting.toString());
+            }
+            String path = FileSystems.getDefault().getPath(basePath, subPath).toFile().toString();
 
             // Configure log level
             String logLevel = conf.getString(ROCKSDB_LOG_LEVEL, "info");
@@ -238,31 +253,15 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
 
     @Override
     public Entry<byte[], byte[]> getFloor(byte[] key) throws IOException {
-        try (RocksIterator iterator = db.newIterator(optionCache)) {
-            // Position the iterator on the record whose key is >= to the supplied key
-            iterator.seek(key);
-
-            if (!iterator.isValid()) {
-                // There are no entries >= key
-                iterator.seekToLast();
-                if (iterator.isValid()) {
-                    return new EntryWrapper(iterator.key(), iterator.value());
-                } else {
-                    // Db is empty
-                    return null;
-                }
-            }
-
-            iterator.prev();
-
-            if (!iterator.isValid()) {
-                // Iterator is on the 1st entry of the db and this entry key is >= to the target
-                // key
-                return null;
-            } else {
+        try (Slice upperBound = new Slice(key);
+                 ReadOptions option = new ReadOptions(optionCache).setIterateUpperBound(upperBound);
+                 RocksIterator iterator = db.newIterator(option)) {
+            iterator.seekToLast();
+            if (iterator.isValid()) {
                 return new EntryWrapper(iterator.key(), iterator.value());
             }
         }
+        return null;
     }
 
     @Override
@@ -285,6 +284,15 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             db.delete(optionDontSync, key);
         } catch (RocksDBException e) {
             throw new IOException("Error in RocksDB delete", e);
+        }
+    }
+
+    @Override
+    public void compact(byte[] firstKey, byte[] lastKey) throws IOException {
+        try {
+            db.compactRange(firstKey, lastKey);
+        } catch (RocksDBException e) {
+            throw new IOException("Error in RocksDB compact", e);
         }
     }
 
@@ -325,13 +333,15 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
 
     @Override
     public CloseableIterator<byte[]> keys(byte[] firstKey, byte[] lastKey) {
-        final RocksIterator iterator = db.newIterator(optionCache);
+        final Slice upperBound = new Slice(lastKey);
+        final ReadOptions option = new ReadOptions(optionCache).setIterateUpperBound(upperBound);
+        final RocksIterator iterator = db.newIterator(option);
         iterator.seek(firstKey);
 
         return new CloseableIterator<byte[]>() {
             @Override
             public boolean hasNext() {
-                return iterator.isValid() && ByteComparator.compare(iterator.key(), lastKey) < 0;
+                return iterator.isValid();
             }
 
             @Override
@@ -345,6 +355,8 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             @Override
             public void close() {
                 iterator.close();
+                option.close();
+                upperBound.close();
             }
         };
     }
@@ -472,8 +484,6 @@ public class KeyValueStorageRocksDB implements KeyValueStorage {
             return key;
         }
     }
-
-    private static final Comparator<byte[]> ByteComparator = UnsignedBytes.lexicographicalComparator();
 
     private static final Logger log = LoggerFactory.getLogger(KeyValueStorageRocksDB.class);
 }

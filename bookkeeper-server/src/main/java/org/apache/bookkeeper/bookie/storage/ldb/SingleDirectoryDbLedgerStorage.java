@@ -28,8 +28,10 @@ import com.google.protobuf.ByteString;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.Unpooled;
 import io.netty.util.concurrent.DefaultThreadFactory;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -58,6 +60,7 @@ import org.apache.bookkeeper.bookie.GarbageCollectorThread;
 import org.apache.bookkeeper.bookie.LastAddConfirmedUpdateNotification;
 import org.apache.bookkeeper.bookie.LedgerCache;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
+import org.apache.bookkeeper.bookie.LedgerDirsManager.LedgerDirsListener;
 import org.apache.bookkeeper.bookie.LedgerEntryPage;
 import org.apache.bookkeeper.bookie.StateManager;
 import org.apache.bookkeeper.bookie.storage.ldb.DbLedgerStorageDataFormats.LedgerData;
@@ -131,6 +134,8 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
     private static final long DEFAULT_MAX_THROTTLE_TIME_MILLIS = TimeUnit.SECONDS.toMillis(10);
 
+    private final long maxReadAheadBytesSize;
+
     public SingleDirectoryDbLedgerStorage(ServerConfiguration conf, LedgerManager ledgerManager,
             LedgerDirsManager ledgerDirsManager, LedgerDirsManager indexDirsManager, StateManager stateManager,
             CheckpointSource checkpointSource, Checkpointer checkpointer, StatsLogger statsLogger,
@@ -151,6 +156,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
 
         readCacheMaxSize = readCacheSize;
         readAheadCacheBatchSize = conf.getInt(READ_AHEAD_CACHE_BATCH_SIZE, DEFAULT_READ_AHEAD_CACHE_BATCH_SIZE);
+
+        // Do not attempt to perform read-ahead more than half the total size of the cache
+        maxReadAheadBytesSize = readCacheMaxSize / 2;
 
         long maxThrottleTimeMillis = conf.getLong(DbLedgerStorage.MAX_THROTTLE_TIME_MILLIS,
                 DEFAULT_MAX_THROTTLE_TIME_MILLIS);
@@ -177,6 +185,7 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             () -> readCache.size(),
             () -> readCache.count()
         );
+        ledgerDirsManager.addLedgerDirsListener(getLedgerDirsListener());
     }
 
     @Override
@@ -465,7 +474,9 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
             int count = 0;
             long size = 0;
 
-            while (count < readAheadCacheBatchSize && currentEntryLogId == firstEntryLogId) {
+            while (count < readAheadCacheBatchSize
+                    && size < maxReadAheadBytesSize
+                    && currentEntryLogId == firstEntryLogId) {
                 ByteBuf entry = entryLogger.internalReadEntry(orginalLedgerId, firstEntryId, currentEntryLocation,
                         false /* validateEntry */);
 
@@ -767,34 +778,46 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     }
 
     @Override
-    public void setExplicitlac(long ledgerId, ByteBuf lac) throws IOException {
-        getOrAddLedgerInfo(ledgerId).setExplicitLac(lac);
+    public void setExplicitLac(long ledgerId, ByteBuf lac) throws IOException {
+        TransientLedgerInfo ledgerInfo = getOrAddLedgerInfo(ledgerId);
+        ledgerInfo.setExplicitLac(lac);
+        ledgerIndex.setExplicitLac(ledgerId, lac);
+        ledgerInfo.notifyWatchers(Long.MAX_VALUE);
     }
 
     @Override
-    public ByteBuf getExplicitLac(long ledgerId) {
-        TransientLedgerInfo ledgerInfo = transientLedgerInfoCache.get(ledgerId);
-        if (null == ledgerInfo) {
-            return null;
-        } else {
+    public ByteBuf getExplicitLac(long ledgerId) throws IOException {
+        if (log.isDebugEnabled()) {
+            log.debug("getExplicitLac ledger {}", ledgerId);
+        }
+        TransientLedgerInfo ledgerInfo = getOrAddLedgerInfo(ledgerId);
+        if (ledgerInfo.getExplicitLac() != null) {
+            if (log.isDebugEnabled()) {
+                log.debug("getExplicitLac ledger {} returned from TransientLedgerInfo", ledgerId);
+            }
             return ledgerInfo.getExplicitLac();
         }
+        LedgerData ledgerData = ledgerIndex.get(ledgerId);
+        if (!ledgerData.hasExplicitLac()) {
+            if (log.isDebugEnabled()) {
+                log.debug("getExplicitLac ledger {} missing from LedgerData", ledgerId);
+            }
+            return null;
+        }
+        if (ledgerData.hasExplicitLac()) {
+            if (log.isDebugEnabled()) {
+                log.debug("getExplicitLac ledger {} returned from LedgerData", ledgerId);
+            }
+            ByteString persistedLac = ledgerData.getExplicitLac();
+            ledgerInfo.setExplicitLac(Unpooled.wrappedBuffer(persistedLac.toByteArray()));
+        }
+        return ledgerInfo.getExplicitLac();
     }
 
     private TransientLedgerInfo getOrAddLedgerInfo(long ledgerId) {
-        TransientLedgerInfo tli = transientLedgerInfoCache.get(ledgerId);
-        if (tli != null) {
-            return tli;
-        } else {
-            TransientLedgerInfo newTli = new TransientLedgerInfo(ledgerId, ledgerIndex);
-            tli = transientLedgerInfoCache.putIfAbsent(ledgerId, newTli);
-            if (tli != null) {
-                newTli.close();
-                return tli;
-            } else {
-                return newTli;
-            }
-        }
+        return transientLedgerInfoCache.computeIfAbsent(ledgerId, l -> {
+            return new TransientLedgerInfo(l, ledgerIndex);
+        });
     }
 
     private void updateCachedLacIfNeeded(long ledgerId, long lac) {
@@ -896,5 +919,63 @@ public class SingleDirectoryDbLedgerStorage implements CompactableLedgerStorage 
     public OfLong getListOfEntriesOfLedger(long ledgerId) throws IOException {
         throw new UnsupportedOperationException(
                 "getListOfEntriesOfLedger method is currently unsupported for SingleDirectoryDbLedgerStorage");
+    }
+
+    private LedgerDirsManager.LedgerDirsListener getLedgerDirsListener() {
+        return new LedgerDirsListener() {
+
+            @Override
+            public void diskAlmostFull(File disk) {
+                if (gcThread.isForceGCAllowWhenNoSpace()) {
+                    gcThread.enableForceGC();
+                } else {
+                    gcThread.suspendMajorGC();
+                }
+            }
+
+            @Override
+            public void diskFull(File disk) {
+                if (gcThread.isForceGCAllowWhenNoSpace()) {
+                    gcThread.enableForceGC();
+                } else {
+                    gcThread.suspendMajorGC();
+                    gcThread.suspendMinorGC();
+                }
+            }
+
+            @Override
+            public void allDisksFull(boolean highPriorityWritesAllowed) {
+                if (gcThread.isForceGCAllowWhenNoSpace()) {
+                    gcThread.enableForceGC();
+                } else {
+                    gcThread.suspendMajorGC();
+                    gcThread.suspendMinorGC();
+                }
+            }
+
+            @Override
+            public void diskWritable(File disk) {
+                // we have enough space now
+                if (gcThread.isForceGCAllowWhenNoSpace()) {
+                    // disable force gc.
+                    gcThread.disableForceGC();
+                } else {
+                    // resume compaction to normal.
+                    gcThread.resumeMajorGC();
+                    gcThread.resumeMinorGC();
+                }
+            }
+
+            @Override
+            public void diskJustWritable(File disk) {
+                if (gcThread.isForceGCAllowWhenNoSpace()) {
+                    // if a disk is just writable, we still need force gc.
+                    gcThread.enableForceGC();
+                } else {
+                    // still under warn threshold, only resume minor compaction.
+                    gcThread.resumeMinorGC();
+                }
+            }
+        };
     }
 }

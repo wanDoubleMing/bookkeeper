@@ -22,7 +22,6 @@ package org.apache.bookkeeper.proto;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.protobuf.ExtensionRegistry;
-
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.PooledByteBufAllocator;
@@ -53,7 +52,6 @@ import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import io.netty.handler.codec.LengthFieldPrepender;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.util.concurrent.DefaultThreadFactory;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -67,14 +65,12 @@ import java.util.Queue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 import javax.net.ssl.SSLPeerUnverifiedException;
-
 import org.apache.bookkeeper.auth.AuthProviderFactoryFactory;
 import org.apache.bookkeeper.auth.BookKeeperPrincipal;
 import org.apache.bookkeeper.auth.BookieAuthProvider;
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.common.collections.BlockingMpscQueue;
 import org.apache.bookkeeper.common.util.affinity.CpuAffinity;
 import org.apache.bookkeeper.conf.ServerConfiguration;
@@ -152,8 +148,8 @@ class BookieNettyServer {
                         try {
                             CpuAffinity.acquireCore();
                         } catch (Throwable t) {
-                            LOG.warn("Failed to acquire CPU core for thread {}", Thread.currentThread().getName(),
-                                    t.getMessage(), t);
+                            LOG.warn("Failed to acquire CPU core for thread {} {}",
+                                    Thread.currentThread().getName(), t.getMessage(), t);
                         }
                     });
                 }
@@ -163,8 +159,8 @@ class BookieNettyServer {
         } else {
             jvmEventLoopGroup = null;
         }
-        bookieId = Bookie.getBookieId(conf);
-        bookieAddress = Bookie.getBookieAddress(conf);
+        bookieId = BookieImpl.getBookieId(conf);
+        bookieAddress = BookieImpl.getBookieAddress(conf);
         if (conf.getListeningInterface() == null) {
             bindAddress = new InetSocketAddress(conf.getBookiePort());
         } else {
@@ -189,7 +185,7 @@ class BookieNettyServer {
             for (Channel channel : allChannels) {
                 // To suspend processing in the bookie, submit a task
                 // that keeps the event loop busy until resume is
-                // explicitely invoked
+                // explicitly invoked
                 channel.eventLoop().submit(() -> {
                     while (suspended && isRunning()) {
                         try {

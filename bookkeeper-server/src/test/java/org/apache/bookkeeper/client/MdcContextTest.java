@@ -38,6 +38,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import lombok.extern.slf4j.Slf4j;
 
 import org.apache.bookkeeper.bookie.Bookie;
+import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.bookie.InterleavedLedgerStorage;
 import org.apache.bookkeeper.bookie.LedgerDirsManager;
 import org.apache.bookkeeper.conf.ClientConfiguration;
@@ -180,9 +181,9 @@ public class MdcContextTest extends BookKeeperClusterTestCase {
     @Test
     public void testAddFailsWithReadOnlyBookie() throws Exception {
         for (int i = 0; i < 3; ++i) {
-            Bookie bookie = bs.get(i).getBookie();
-            File[] ledgerDirs = bsConfs.get(i).getLedgerDirs();
-            LedgerDirsManager ledgerDirsManager = bookie.getLedgerDirsManager();
+            Bookie bookie = serverByIndex(i).getBookie();
+            File[] ledgerDirs = confByIndex(i).getLedgerDirs();
+            LedgerDirsManager ledgerDirsManager = ((BookieImpl) bookie).getLedgerDirsManager();
             ledgerDirsManager.addToFilledDirs(new File(ledgerDirs[0], "current"));
         }
 
@@ -228,7 +229,7 @@ public class MdcContextTest extends BookKeeperClusterTestCase {
         } catch (BKException.BKReadException e) {
             // pass
         }
-        assertLogWithMdc("ledger_read_entry", "ReadException on ledgerId:0 firstEntry:100 lastEntry:100");
+        assertLogWithMdc("ledger_read_entry", "ReadEntries exception on ledgerId:0 firstEntry:100 lastEntry:100");
     }
 
     @Test
@@ -245,7 +246,7 @@ public class MdcContextTest extends BookKeeperClusterTestCase {
         } catch (BKException.BKReadException e) {
             // pass
         }
-        assertLogWithMdc("ledger_read_entry", "ReadException on ledgerId:0 firstEntry:100 lastEntry:100");
+        assertLogWithMdc("ledger_read_entry", "ReadEntries exception on ledgerId:0 firstEntry:100 lastEntry:100");
     }
 
 }

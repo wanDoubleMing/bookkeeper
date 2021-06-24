@@ -39,6 +39,8 @@ import org.apache.bookkeeper.statelib.api.mvcc.MVCCAsyncStore;
 import org.apache.bookkeeper.statelib.impl.rocksdb.checkpoint.fs.FSCheckpointManager;
 import org.apache.bookkeeper.stream.storage.StorageResources;
 import org.apache.bookkeeper.stream.storage.StorageResourcesSpec;
+import org.apache.bookkeeper.stream.storage.conf.StorageConfiguration;
+import org.apache.commons.configuration.CompositeConfiguration;
 import org.apache.distributedlog.DLSN;
 import org.apache.distributedlog.LogRecord;
 import org.apache.distributedlog.LogRecordWithDLSN;
@@ -65,6 +67,11 @@ public class MVCCStoreFactoryImplTest {
     private StorageResources resources;
     private MVCCStoreFactoryImpl factory;
 
+    private final CompositeConfiguration compConf =
+        new CompositeConfiguration();
+    private final StorageConfiguration storageConf =
+        new StorageConfiguration(compConf);
+
     @Before
     public void setup() throws IOException {
         this.namespace = mock(Namespace.class);
@@ -74,6 +81,7 @@ public class MVCCStoreFactoryImplTest {
         when(namespace.openLog(anyString())).thenReturn(dlm);
         AsyncLogWriter logWriter = mock(AsyncLogWriter.class);
         when(dlm.openAsyncLogWriter()).thenReturn(FutureUtils.value(logWriter));
+        when(dlm.openAsyncLogWriter(any())).thenReturn(FutureUtils.value(logWriter));
         when(logWriter.getLastTxId()).thenReturn(-1L);
         DLSN dlsn = new DLSN(0L, 0L, 0L);
         when(logWriter.write(any(LogRecord.class))).thenReturn(FutureUtils.value(dlsn));
@@ -102,7 +110,7 @@ public class MVCCStoreFactoryImplTest {
             () -> new FSCheckpointManager(new File(storeDirs[0], "checkpoints")),
             storeDirs,
             resources,
-            false);
+            false, storageConf);
     }
 
     @Test

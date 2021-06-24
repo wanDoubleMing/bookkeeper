@@ -685,8 +685,8 @@ public class LedgerHandle implements WriteHandle {
         }
 
         if (lastEntry > lastAddConfirmed) {
-            LOG.error("ReadException on ledgerId:{} firstEntry:{} lastEntry:{}",
-                    ledgerId, firstEntry, lastEntry);
+            LOG.error("ReadEntries exception on ledgerId:{} firstEntry:{} lastEntry:{} lastAddConfirmed:{}",
+                    ledgerId, firstEntry, lastEntry, lastAddConfirmed);
             cb.readComplete(BKException.Code.ReadException, this, null, ctx);
             return;
         }
@@ -751,8 +751,8 @@ public class LedgerHandle implements WriteHandle {
         }
 
         if (lastEntry > lastAddConfirmed) {
-            LOG.error("ReadException on ledgerId:{} firstEntry:{} lastEntry:{}",
-                    ledgerId, firstEntry, lastEntry);
+            LOG.error("ReadAsync exception on ledgerId:{} firstEntry:{} lastEntry:{} lastAddConfirmed:{}",
+                    ledgerId, firstEntry, lastEntry, lastAddConfirmed);
             return FutureUtils.exception(new BKReadException());
         }
 
@@ -880,7 +880,7 @@ public class LedgerHandle implements WriteHandle {
             // unresponsive thus helpful enough.
             DistributionSchedule.WriteSet ws = distributionSchedule.getWriteSet(firstEntry);
             try {
-                if (!waitForWritable(ws, firstEntry, ws.size() - 1, clientCtx.getConf().waitForWriteSetMs)) {
+                if (!waitForWritable(ws, ws.size() - 1, clientCtx.getConf().waitForWriteSetMs)) {
                     op.allowFailFastOnUnwritableChannel();
                 }
             } finally {
@@ -1213,7 +1213,7 @@ public class LedgerHandle implements WriteHandle {
     }
 
     private boolean isWriteSetWritable(DistributionSchedule.WriteSet writeSet,
-                                       long key, int allowedNonWritableCount) {
+                                       int allowedNonWritableCount) {
         if (allowedNonWritableCount < 0) {
             allowedNonWritableCount = 0;
         }
@@ -1224,7 +1224,7 @@ public class LedgerHandle implements WriteHandle {
         int nonWritableCount = 0;
         List<BookieId> currentEnsemble = getCurrentEnsemble();
         for (int i = 0; i < sz; i++) {
-            if (!clientCtx.getBookieClient().isWritable(currentEnsemble.get(i), key)) {
+            if (!clientCtx.getBookieClient().isWritable(currentEnsemble.get(i), ledgerId)) {
                 nonWritableCount++;
                 if (nonWritableCount >= allowedNonWritableCount) {
                     return false;
@@ -1239,21 +1239,21 @@ public class LedgerHandle implements WriteHandle {
         return true;
     }
 
-    protected boolean waitForWritable(DistributionSchedule.WriteSet writeSet, long key,
+    protected boolean waitForWritable(DistributionSchedule.WriteSet writeSet,
                                     int allowedNonWritableCount, long durationMs) {
         if (durationMs < 0) {
             return true;
         }
 
         final long startTime = MathUtils.nowInNano();
-        boolean success = isWriteSetWritable(writeSet, key, allowedNonWritableCount);
+        boolean success = isWriteSetWritable(writeSet, allowedNonWritableCount);
 
         if (!success && durationMs > 0) {
             int backoff = 1;
             final int maxBackoff = 4;
             final long deadline = startTime + TimeUnit.MILLISECONDS.toNanos(durationMs);
 
-            while (!isWriteSetWritable(writeSet, key, allowedNonWritableCount)) {
+            while (!isWriteSetWritable(writeSet, allowedNonWritableCount)) {
                 if (MathUtils.nowInNano() < deadline) {
                     long maxSleep = MathUtils.elapsedMSec(startTime);
                     if (maxSleep < 0) {
@@ -1265,7 +1265,7 @@ public class LedgerHandle implements WriteHandle {
                         TimeUnit.MILLISECONDS.sleep(sleepMs);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
-                        success = isWriteSetWritable(writeSet, key, allowedNonWritableCount);
+                        success = isWriteSetWritable(writeSet, allowedNonWritableCount);
                         break;
                     }
                     if (backoff <= maxBackoff) {
@@ -1340,7 +1340,7 @@ public class LedgerHandle implements WriteHandle {
 
         DistributionSchedule.WriteSet ws = distributionSchedule.getWriteSet(op.getEntryId());
         try {
-            if (!waitForWritable(ws, op.getEntryId(), 0, clientCtx.getConf().waitForWriteSetMs)) {
+            if (!waitForWritable(ws, 0, clientCtx.getConf().waitForWriteSetMs)) {
                 op.allowFailFastOnUnwritableChannel();
             }
         } finally {
@@ -1383,6 +1383,15 @@ public class LedgerHandle implements WriteHandle {
      */
 
     public void asyncReadLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
+        if (clientCtx.getConf().useV2WireProtocol) {
+            // in v2 protocol we don't support readLAC RPC
+            asyncReadPiggybackLastConfirmed(cb, ctx);
+        } else {
+            asyncReadExplicitLastConfirmed(cb, ctx);
+        }
+    }
+
+    private void asyncReadPiggybackLastConfirmed(final ReadLastConfirmedCallback cb, final Object ctx) {
         boolean isClosed;
         long lastEntryId;
         synchronized (this) {

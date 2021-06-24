@@ -40,33 +40,36 @@ public final class CommandHelpers {
      * When using hostname as bookie id, it's possible that the host is no longer valid and
      * can't get a ip from the hostname, so using UNKNOWN to indicate ip is unknown for the hostname
      */
-    public static String getBookieSocketAddrStringRepresentation(BookieId bookidId,
+    public static String getBookieSocketAddrStringRepresentation(BookieId bookieId,
                                                                  BookieAddressResolver bookieAddressResolver) {
-        BookieSocketAddress networkAddress = bookieAddressResolver.resolve(bookidId);
-        String hostname = networkAddress.getHostName();
-        String bookieID = networkAddress.toString();
-        String realHostname;
-        String ip = null;
-        if (InetAddresses.isInetAddress(hostname)){
-            ip = hostname;
-            realHostname = networkAddress.getSocketAddress().getAddress().getCanonicalHostName();
-        } else {
-           InetAddress ia = networkAddress.getSocketAddress().getAddress();
-           if (null != ia){
-              ip = ia.getHostAddress();
-           } else {
-              ip = UNKNOWN;
-           }
-           realHostname = hostname;
+        try {
+            BookieSocketAddress networkAddress = bookieAddressResolver.resolve(bookieId);
+            String hostname = networkAddress.getHostName();
+            String realHostname;
+            String ip;
+            if (InetAddresses.isInetAddress(hostname)){
+                ip = hostname;
+                realHostname = networkAddress.getSocketAddress().getAddress().getCanonicalHostName();
+            } else {
+               InetAddress ia = networkAddress.getSocketAddress().getAddress();
+               if (null != ia){
+                  ip = ia.getHostAddress();
+               } else {
+                  ip = UNKNOWN;
+               }
+               realHostname = hostname;
+            }
+            return formatBookieSocketAddress(bookieId, ip, networkAddress.getPort(), realHostname);
+        } catch (BookieAddressResolver.BookieIdNotResolvedException bookieNotAvailable) {
+            return formatBookieSocketAddress(bookieId, UNKNOWN, 0, UNKNOWN);
         }
-        return formatBookieSocketAddress(bookieID, ip, networkAddress.getPort(), realHostname);
     }
 
     /**
      * Format {@link BookieSocketAddress}.
      **/
-    public static String formatBookieSocketAddress(String bookieId, String ip, int port, String hostName) {
-       return String.format("BookieID:%s, IP:%s, Port:%d, Hostname:%s", bookieId, ip, port, hostName);
+    private static String formatBookieSocketAddress(BookieId bookieId, String ip, int port, String hostName) {
+       return String.format("BookieID:%s, IP:%s, Port:%d, Hostname:%s", bookieId.toString(), ip, port, hostName);
     }
 
 }

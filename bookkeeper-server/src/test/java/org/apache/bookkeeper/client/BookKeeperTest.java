@@ -27,11 +27,10 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
 import io.netty.util.IllegalReferenceCountException;
-
 import java.io.IOException;
 import java.net.UnknownHostException;
 import java.util.Collections;
@@ -43,7 +42,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.AsyncCallback.ReadCallback;
 import org.apache.bookkeeper.client.BKException.BKBookieHandleNotAvailableException;
@@ -53,11 +51,11 @@ import org.apache.bookkeeper.client.api.WriteFlag;
 import org.apache.bookkeeper.client.api.WriteHandle;
 import org.apache.bookkeeper.conf.ClientConfiguration;
 import org.apache.bookkeeper.net.BookieId;
-import org.apache.bookkeeper.proto.BookieServer;
 import org.apache.bookkeeper.stats.NullStatsLogger;
 import org.apache.bookkeeper.stats.StatsLogger;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
 import org.apache.bookkeeper.test.TestStatsProvider;
+import org.apache.bookkeeper.util.StaticDNSResolver;
 import org.apache.bookkeeper.zookeeper.BoundExponentialBackoffRetryPolicy;
 import org.apache.bookkeeper.zookeeper.ZooKeeperClient;
 import org.apache.bookkeeper.zookeeper.ZooKeeperWatcherBase;
@@ -85,7 +83,7 @@ public class BookKeeperTest extends BookKeeperClusterTestCase {
     private final DigestType digestType;
 
     public BookKeeperTest() {
-        super(4);
+        super(3);
         this.digestType = DigestType.CRC32;
     }
 
@@ -1035,10 +1033,10 @@ public class BookKeeperTest extends BookKeeperClusterTestCase {
 
             // Put all non ensemble bookies to sleep
             LOG.info("Putting all non ensemble bookies to sleep.");
-            for (BookieServer bookieServer : bs) {
+            for (BookieId addr : bookieAddresses()) {
                 try {
-                    if (!lh.getCurrentEnsemble().contains(bookieServer.getBookieId())) {
-                        sleepBookie(bookieServer.getBookieId(), sleepLatchCase2);
+                    if (!lh.getCurrentEnsemble().contains(addr)) {
+                        sleepBookie(addr, sleepLatchCase2);
                     }
                 } catch (UnknownHostException ignored) {}
             }
@@ -1112,4 +1110,20 @@ public class BookKeeperTest extends BookKeeperClusterTestCase {
                          1);
         }
     }
+
+    @Test
+    public void testBookieAddressResolverPassedToDNSToSwitchMapping() throws Exception {
+        ClientConfiguration conf = new ClientConfiguration();
+        conf.setMetadataServiceUri(zkUtil.getMetadataServiceUri());
+
+        StaticDNSResolver tested = new StaticDNSResolver();
+        try (BookKeeper bkc = BookKeeper
+                        .forConfig(conf)
+                        .dnsResolver(tested)
+                        .build()) {
+            bkc.createLedger(digestType, "testPasswd".getBytes()).close();
+            assertSame(bkc.getBookieAddressResolver(), tested.getBookieAddressResolver());
+        }
+    }
+
 }

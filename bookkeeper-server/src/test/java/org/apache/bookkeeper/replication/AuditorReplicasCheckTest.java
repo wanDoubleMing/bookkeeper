@@ -23,7 +23,6 @@ package org.apache.bookkeeper.replication;
 import static org.apache.bookkeeper.replication.ReplicationStats.AUDITOR_SCOPE;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
-
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
@@ -35,9 +34,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
-
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.client.BKException;
 import org.apache.bookkeeper.client.BookKeeper;
 import org.apache.bookkeeper.client.BookKeeperAdmin;
@@ -90,8 +88,8 @@ public class AuditorReplicasCheckTest extends BookKeeperClusterTestCase {
     public void setUp() throws Exception {
         super.setUp();
         StaticDNSResolver.reset();
-        driver = MetadataDrivers.getBookieDriver(URI.create(bsConfs.get(0).getMetadataServiceUri()));
-        driver.initialize(bsConfs.get(0), () -> {
+        driver = MetadataDrivers.getBookieDriver(URI.create(confByIndex(0).getMetadataServiceUri()));
+        driver.initialize(confByIndex(0), () -> {
         }, NullStatsLogger.INSTANCE);
     }
 
@@ -149,7 +147,7 @@ public class AuditorReplicasCheckTest extends BookKeeperClusterTestCase {
         TestOpStatsLogger replicasCheckStatsLogger = (TestOpStatsLogger) statsLogger
                 .getOpStatsLogger(ReplicationStats.REPLICAS_CHECK_TIME);
 
-        final TestAuditor auditor = new TestAuditor(Bookie.getBookieId(servConf).toString(), servConf, bkc, true,
+        final TestAuditor auditor = new TestAuditor(BookieImpl.getBookieId(servConf).toString(), servConf, bkc, true,
                 new TestBookKeeperAdmin(bkc, statsLogger, expectedReturnAvailabilityOfEntriesOfLedger,
                         errorReturnValueForGetAvailabilityOfEntriesOfLedger),
                 true, statsLogger);
@@ -196,7 +194,7 @@ public class AuditorReplicasCheckTest extends BookKeeperClusterTestCase {
             int ackQuorumSize, Map<Long, List<BookieId>> segmentEnsembles, long lastEntryId, int length,
             DigestType digestType, byte[] password) throws InterruptedException, ExecutionException {
         LedgerMetadataBuilder ledgerMetadataBuilder = LedgerMetadataBuilder.create();
-        ledgerMetadataBuilder.withEnsembleSize(ensembleSize).withWriteQuorumSize(writeQuorumSize)
+        ledgerMetadataBuilder.withId(ledgerId).withEnsembleSize(ensembleSize).withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize).withClosedState().withLastEntryId(lastEntryId).withLength(length)
                 .withDigestType(digestType).withPassword(password);
         for (Map.Entry<Long, List<BookieId>> mapEntry : segmentEnsembles.entrySet()) {
@@ -210,7 +208,7 @@ public class AuditorReplicasCheckTest extends BookKeeperClusterTestCase {
             int ackQuorumSize, Map<Long, List<BookieId>> segmentEnsembles, DigestType digestType,
             byte[] password) throws InterruptedException, ExecutionException {
         LedgerMetadataBuilder ledgerMetadataBuilder = LedgerMetadataBuilder.create();
-        ledgerMetadataBuilder.withEnsembleSize(ensembleSize).withWriteQuorumSize(writeQuorumSize)
+        ledgerMetadataBuilder.withId(ledgerId).withEnsembleSize(ensembleSize).withWriteQuorumSize(writeQuorumSize)
                 .withAckQuorumSize(ackQuorumSize).withDigestType(digestType).withPassword(password);
         for (Map.Entry<Long, List<BookieId>> mapEntry : segmentEnsembles.entrySet()) {
             ledgerMetadataBuilder.newEnsembleEntry(mapEntry.getKey(), mapEntry.getValue());
@@ -223,9 +221,8 @@ public class AuditorReplicasCheckTest extends BookKeeperClusterTestCase {
             MultiKeyMap<String, Integer> errorReturnValueForGetAvailabilityOfEntriesOfLedger,
             int expectedNumLedgersFoundHavingNoReplicaOfAnEntry,
             int expectedNumLedgersHavingLessThanAQReplicasOfAnEntry,
-            int expectedNumLedgersHavingLessThanWQReplicasOfAnEntry) throws CompatibilityException,
-            UnavailableException, UnknownHostException, MetadataException, KeeperException, InterruptedException {
-        ServerConfiguration servConf = new ServerConfiguration(bsConfs.get(0));
+            int expectedNumLedgersHavingLessThanWQReplicasOfAnEntry) throws Exception {
+        ServerConfiguration servConf = new ServerConfiguration(confByIndex(0));
         setServerConfigProperties(servConf);
         MutableObject<Auditor> auditorRef = new MutableObject<Auditor>();
         try {

@@ -34,6 +34,12 @@ import org.apache.bookkeeper.net.BookieId;
 @LimitedPrivate
 @Unstable
 public interface LedgerMetadata {
+    /**
+     * Returns the id of this ledger.
+     *
+     * @return the id of this ledger.
+     */
+    long getLedgerId();
 
     /**
      * Returns the ensemble size of this ledger.
@@ -128,9 +134,9 @@ public interface LedgerMetadata {
     List<BookieId> getEnsembleAt(long entryId);
 
     /**
-     * Returns all the ensembles of this entry.
+     * Returns all the ensembles of this ledger.
      *
-     * @return all the ensembles of this entry.
+     * @return all the ensembles of this ledger.
      */
     NavigableMap<Long, ? extends List<BookieId>> getAllEnsembles();
 

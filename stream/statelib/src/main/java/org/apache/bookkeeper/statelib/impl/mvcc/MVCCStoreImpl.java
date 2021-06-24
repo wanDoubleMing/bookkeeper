@@ -365,6 +365,7 @@ class MVCCStoreImpl<K, V> extends RocksdbKVStore<K, V> implements MVCCStore<K, V
         IncrementResult<K, V> result = null;
         try {
             result = increment(revision, batch, op);
+            updateLastRevision(batch, revision);
             executeBatch(batch);
             return result;
         } catch (StateStoreRuntimeException e) {
@@ -463,6 +464,7 @@ class MVCCStoreImpl<K, V> extends RocksdbKVStore<K, V> implements MVCCStore<K, V
         PutResult<K, V> result = null;
         try {
             result = put(revision, batch, op);
+            updateLastRevision(batch, revision);
             executeBatch(batch);
             return result;
         } catch (StateStoreRuntimeException e) {
@@ -576,6 +578,7 @@ class MVCCStoreImpl<K, V> extends RocksdbKVStore<K, V> implements MVCCStore<K, V
         DeleteResult<K, V> result = null;
         try {
             result = delete(revision, batch, op, true);
+            updateLastRevision(batch, revision);
             executeBatch(batch);
             return result;
         } catch (StateStoreRuntimeException e) {
@@ -740,6 +743,7 @@ class MVCCStoreImpl<K, V> extends RocksdbKVStore<K, V> implements MVCCStore<K, V
             for (Op<K, V> o : operations) {
                 results.add(executeOp(revision, batch, o));
             }
+            updateLastRevision(batch, revision);
             executeBatch(batch);
 
             // 4. repare the result
@@ -961,7 +965,7 @@ class MVCCStoreImpl<K, V> extends RocksdbKVStore<K, V> implements MVCCStore<K, V
 
         // raw key
         byte[] rawKey = (null != key) ? keyCoder.encode(key) : NULL_START_KEY;
-
+        byte[] rawEndKey = NULL_END_KEY;
         if (null == endKey) {
             // point lookup
             MVCCRecord record = getKeyRecord(key, rawKey);
@@ -984,8 +988,9 @@ class MVCCStoreImpl<K, V> extends RocksdbKVStore<K, V> implements MVCCStore<K, V
                     record.recycle();
                 }
             }
+        } else {
+            rawEndKey = keyCoder.encode(endKey);
         }
-        byte[] rawEndKey = (null != endKey) ? keyCoder.encode(endKey) : NULL_END_KEY;
         Pair<byte[], byte[]> realRange = getRealRange(rawKey, rawEndKey);
         rawKey = realRange.getLeft();
         rawEndKey = realRange.getRight();

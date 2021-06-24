@@ -28,14 +28,12 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
-
 import com.google.common.collect.Lists;
 import io.netty.buffer.AbstractByteBufAllocator;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -51,9 +49,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
-
-import org.apache.bookkeeper.bookie.Bookie;
 import org.apache.bookkeeper.bookie.BookieException;
+import org.apache.bookkeeper.bookie.BookieImpl;
 import org.apache.bookkeeper.client.AsyncCallback.AddCallback;
 import org.apache.bookkeeper.client.BKException.BKLedgerClosedException;
 import org.apache.bookkeeper.client.BookKeeper.DigestType;
@@ -61,9 +58,11 @@ import org.apache.bookkeeper.client.api.LedgerEntries;
 import org.apache.bookkeeper.client.api.ReadHandle;
 import org.apache.bookkeeper.client.api.WriteAdvHandle;
 import org.apache.bookkeeper.conf.ServerConfiguration;
+import org.apache.bookkeeper.meta.LedgerMetadataSerDe;
 import org.apache.bookkeeper.meta.LongHierarchicalLedgerManagerFactory;
 import org.apache.bookkeeper.net.BookieId;
 import org.apache.bookkeeper.test.BookKeeperClusterTestCase;
+import org.apache.bookkeeper.test.TestStatsProvider;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.zookeeper.KeeperException;
 import org.junit.Assert;
@@ -245,8 +244,7 @@ public class BookieWriteLedgerTest extends
         // Replace the bookie with a fake bookie
         ServerConfiguration conf = killBookie(ensemble.get(0));
         BookieWriteLedgerTest.CorruptReadBookie corruptBookie = new BookieWriteLedgerTest.CorruptReadBookie(conf);
-        bs.add(startBookie(conf, corruptBookie));
-        bsConfs.add(conf);
+        startAndAddBookie(conf, corruptBookie);
 
         i = numEntriesToWrite;
         numEntriesToWrite = numEntriesToWrite + 50;
@@ -1428,6 +1426,16 @@ public class BookieWriteLedgerTest extends
         bkc.deleteLedger(lh.ledgerId);
     }
 
+    @Test
+    public void testLedgerMetadataTest() throws Exception {
+        baseClientConf.setLedgerMetadataFormatVersion(LedgerMetadataSerDe.METADATA_FORMAT_VERSION_2);
+        BookKeeperTestClient bkc = new BookKeeperTestClient(baseClientConf, new TestStatsProvider());
+        // Create a ledger
+        lh = bkc.createLedger(3, 3, 2, digestType, ledgerPassword);
+        assertEquals(lh.getLedgerMetadata().getMetadataFormatVersion(), LedgerMetadataSerDe.METADATA_FORMAT_VERSION_2);
+        lh.close();
+    }
+
     private void readEntries(LedgerHandle lh, List<byte[]> entries) throws InterruptedException, BKException {
         ls = lh.readEntries(0, numEntriesToWrite - 1);
         int index = 0;
@@ -1487,7 +1495,7 @@ public class BookieWriteLedgerTest extends
         }
     }
 
-    static class CorruptReadBookie extends Bookie {
+    static class CorruptReadBookie extends BookieImpl {
 
         static final Logger LOG = LoggerFactory.getLogger(CorruptReadBookie.class);
         ByteBuf localBuf;
